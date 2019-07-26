@@ -1,11 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import sys
 import logging
-import thread
 import struct
 import socket
-import SocketServer
+import psutil
+
+if sys.version_info.major == 2:
+    import thread
+    import SocketServer
+else:
+    import _thread as thread
+    import socketserver as SocketServer
+
 
 # DNS Query
 class SinDNSQuery:
@@ -125,7 +133,7 @@ class SinDNSServer:
 # A TCPHandler to handle HTTP request
 class SinHTTPHandler(SocketServer.BaseRequestHandler):
     def handle(self):
-        data = self.request.recv(1024).strip()
+        data = self.request.recv(1024).strip().decode('utf-8')
         logging.info('[HTTP] request from (%r):%r' % (self.client_address, data))
         if data.find('Host: conntest.nintendowifi.net\r\n') != -1:
             response_body = '''
@@ -143,11 +151,10 @@ class SinHTTPHandler(SocketServer.BaseRequestHandler):
             response_body = 'ok'
         else:
             response_body = '''What's your problem?'''
-
         response_headers = 'HTTP/1.0 200 OK\r\nContent-Length: %d\r\n' % len(response_body)
         response_headers += 'Content-Type: text/html\r\nX-Organization: Nintendo\r\n\r\n'
         response = response_headers + response_body
-        self.request.sendall(response)
+        self.request.sendall(response.encode('utf-8'))
 
 
 # HTTP Server
@@ -160,6 +167,36 @@ class SinHTTPServer:
         logging.info('[HTTP] start http server on %s:%d' % (self.addr, self.port))
         server = SocketServer.TCPServer((self.addr, self.port), SinHTTPHandler)
         server.serve_forever()
+
+
+# PSUTIL
+class psutils:
+    @staticmethod
+    def get_active_netcards():
+        netcard_info = []
+        info = psutil.net_if_addrs()
+        for k,v in info.items():
+            for item in v:
+                if item[0] == 2 and item[1] != '127.0.0.1' and item[1][:8] != '169.254.':
+                    netcard_info.append((k,item[1]))
+        return netcard_info
+
+    @staticmethod
+    def get_addr():
+        info = psutils.get_active_netcards()
+        if len(info) == 1:
+            return info[0][1];
+        else:
+            while True:
+                for i in range(len(info)):
+                    print("    <%d>: %s %s" % (i, info[i][1], info[i][0]))
+                id = input('which? >')
+                try:
+                    idx = int(id)
+                    if idx < len(info):
+                        return info[idx][1]
+                except:
+                    pass
 
 
 def StartDNSServer(addr, port):
@@ -180,14 +217,12 @@ def StartHTTPServer(addr, port):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     try:
-        host = socket.getfqdn(socket.gethostname())
-        addr = socket.gethostbyname(host)
-        logging.info("host: %s %s" % (host, addr))
-
+        addr = psutils.get_addr()
+        logging.info("start on %s" % addr)
         thread.start_new_thread(StartDNSServer, (addr, 53))  # start DNS server
         thread.start_new_thread(StartHTTPServer, (addr, 80))  # start HTTP server
     except Exception as e:
         logging.error(e)
 
-    while 1:
+    while True:
         pass
